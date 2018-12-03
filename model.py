@@ -268,7 +268,8 @@ class ResNet(nn.Module):
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
-                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+#                 return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+                return [torch.zeros([1]).cuda(0), torch.zeros([1]).cuda(0), torch.zeros([1, 4]).cuda(0)] #modified by krf 2018/11/29 github issue
 
             classification = classification[:, scores_over_thresh, :]
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
@@ -322,6 +323,7 @@ def resnet101(num_classes, pretrained=False, **kwargs):
     model = ResNet(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir='.'), strict=False)
+        #model.load_state_dict('resnet101-5d3b4d8f.pth')
     return model
 
 

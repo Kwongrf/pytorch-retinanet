@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import random
 import csv
-
+import six
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from torch.utils.data.sampler import Sampler
@@ -19,6 +19,7 @@ import skimage
 
 from PIL import Image
 
+import pydicom
 
 class CocoDataset(Dataset):
     """Coco dataset."""
@@ -299,7 +300,6 @@ class CSVDataset(Dataset):
         image = Image.open(self.image_names[image_index])
         return float(image.width) / float(image.height)
 
-
 def collater(data):
 
     imgs = [s['img'] for s in data]
@@ -341,7 +341,9 @@ def collater(data):
 class Resizer(object):
     """Convert ndarrays in sample to Tensors."""
 
-    def __call__(self, sample, min_side=608, max_side=1024):
+    #def __call__(self, sample, min_side=608, max_side=1024):
+    ###########################################KRF Modeified###########################################################
+    def __call__(self, sample, min_side=512, max_side=1024):
         image, annots = sample['img'], sample['annot']
 
         rows, cols, cns = image.shape
@@ -380,7 +382,7 @@ class Augmenter(object):
 
         if np.random.rand() < flip_x:
             image, annots = sample['img'], sample['annot']
-            image = image[:, ::-1, :]
+            image = image[:, ::-1, :]#横向翻转，50%的概率
 
             rows, cols, channels = image.shape
 

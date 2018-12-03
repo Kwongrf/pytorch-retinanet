@@ -61,7 +61,7 @@ def _compute_ap(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
-
+###############################dataloader added by KRF########################################################
 def _get_detections(dataset, retinanet, score_threshold=0.05, max_detections=100, save_path=None):
     """ Get the detections from the retinanet using the generator.
     The result is a list of lists such that the size is:
@@ -76,17 +76,19 @@ def _get_detections(dataset, retinanet, score_threshold=0.05, max_detections=100
         A list of lists containing the detections for each image in the generator.
     """
     all_detections = [[None for i in range(dataset.num_classes())] for j in range(len(dataset))]
-
+    
     retinanet.eval()
     
     with torch.no_grad():
 
         for index in range(len(dataset)):
+        
             data = dataset[index]
             scale = data['scale']
 
             # run network
             scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
+            #scores, labels, boxes = retinanet(data['img'].cuda().float())
             scores = scores.cpu().numpy()
             labels = labels.cpu().numpy()
             boxes  = boxes.cpu().numpy()
@@ -170,7 +172,7 @@ def evaluate(
 
     # gather all detections and annotations
 
-    all_detections     = _get_detections(generator, retinanet, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
+    all_detections     = _get_detections(generator,retinanet, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
     all_annotations    = _get_annotations(generator)
 
     average_precisions = {}
