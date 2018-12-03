@@ -29,6 +29,7 @@ from torchvision import datasets, models, transforms
 import torchvision
 
 import model
+import mymodel
 from anchors import Anchors
 import losses
 from dataloader import CocoDataset, CSVDataset, collater, Resizer, AspectRatioBasedSampler, Augmenter, UnNormalizer, Normalizer
@@ -37,7 +38,7 @@ from mydataloader import MyDataset
 import coco_eval
 import csv_eval
 import visdom
-vis = visdom.Visdom(env='retinanet_4fold')
+vis = visdom.Visdom(env='retinanet_seresnext101')
 
 assert torch.__version__.split('.')[1] == '4'
 
@@ -50,9 +51,9 @@ CSV_TRAINS = [DATA_PATH + "/csv_train0.csv",DATA_PATH + "/csv_train1.csv",DATA_P
 CSV_VALS = [DATA_PATH + "/csv_val0.csv",DATA_PATH + "/csv_val1.csv",DATA_PATH + "/csv_val2.csv",DATA_PATH + "/csv_val3.csv"]
 CSV_CLASSES = DATA_PATH + "/classes.csv"
 DEPTH = 101
-EPOCHS = 12
+EPOCHS = 13
 BATCH_SIZE=2
-VAL_STEP = 5000
+VAL_STEP = 1000
 #VAL_SIZE = 3000
 #TRAIN_SIZE = 100
 #数据预处理
@@ -178,28 +179,30 @@ for i in range(4):
 
 retinanets = []
 # Create the model
-if DEPTH == 18:
-    retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
-elif DEPTH == 34:
-    retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
-elif DEPTH == 50:
-    for i in range(4):
-        retinanets.append(model.resnet50(num_classes=dataset_train[i].num_classes(), pretrained=True))
-elif DEPTH == 101:
-    for i in range(4):
-        retinanets.append(model.resnet101(num_classes=dataset_train[i].num_classes(), pretrained=True)) 
-elif DEPTH == 152:
-    for i in range(4):
-        retinanets.append(model.resnet152(num_classes=dataset_train[i].num_classes(), pretrained=True))
-else:
-    raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
+# if DEPTH == 18:
+#     retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
+# elif DEPTH == 34:
+#     retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
+# elif DEPTH == 50:
+#     for i in range(4):
+#         retinanets.append(model.resnet50(num_classes=dataset_train[i].num_classes(), pretrained=True))
+# elif DEPTH == 101:
+#     for i in range(4):
+#         retinanets.append(model.resnet101(num_classes=dataset_train[i].num_classes(), pretrained=True)) 
+# elif DEPTH == 152:
+#     for i in range(4):
+#         retinanets.append(model.resnet152(num_classes=dataset_train[i].num_classes(), pretrained=True))
+# else:
+#     raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
     
-
+for i in range(4):
+    retinanets.append(mymodel.se_resnext101_32x4d(num_classes=dataset_train[i].num_classes()))
+    
 optimizer = []
 scheduler = []
 loss_hist = []
 for i in range(4):
-    retinanets[i] = torch.load('weights_stage1/{}_retinanet_{}.pt'.format(i,3))#TODO DO NOT LOAD
+#     retinanets[i] = torch.load('weights_stage1/{}_retinanet_{}.pt'.format(i,3))#TODO DO NOT LOAD
     retinanets[i] = retinanets[i].cuda()
     #变成并行
     retinanets[i] = torch.nn.DataParallel(retinanets[i]).cuda()
@@ -217,10 +220,10 @@ for i in range(4):
 
 # In[6]:
 
-
-count = [6269,5147,5023,4975]#TODO 0
+count = [0,0,0,0]
+# count = [6269,5147,5023,4975]#TODO 0
 import traceback
-for epoch_num in range(4,EPOCHS):#TODO 4
+for epoch_num in range(EPOCHS):#TODO 4
 
     for i in range(4):
         retinanets[i].train()
@@ -255,7 +258,7 @@ for epoch_num in range(4,EPOCHS):#TODO 4
                 print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist[i])))
                 vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([np.mean(loss_hist[i])]), win='train loss '+str(i), update='append' ,opts={'title':'train loss '+str(i)})
                 count[i] += 1
-                vis.save(['retinanet_4fold'])
+                vis.save(['retinanet_seresnext101'])
 
                 del classification_loss
                 del regression_loss
@@ -264,8 +267,8 @@ for epoch_num in range(4,EPOCHS):#TODO 4
                     retinanets[i].eval()
                     mAP = csv_eval.evaluate(dataset_val[i],retinanets[i])
                     vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([mAP[0][0]]), win='val mAP '+str(i), update='append' ,opts={'title':'mAP val '+str(i)})
-                    vis.save(['retinanet_4fold'])
-                    torch.save(retinanets[i].module, 'weights_stage1/{}_retinanet_{}.pt'.format(i, epoch_num))
+                    vis.save(['retinanet_seresnext101'])
+                    torch.save(retinanets[i].module, 'weights_stage1/{}_seresnext101_{}.pt'.format(i, epoch_num))
                     retinanets[i].train()
             except Exception as e:
                 print(e)
@@ -287,11 +290,11 @@ for epoch_num in range(4,EPOCHS):#TODO 4
 #             pass#即使出错也还是需要保存权重的
         #这一步也看不懂？？TODO 
         scheduler[i].step(np.mean(epoch_loss))
-        torch.save(retinanets[i].module, 'weights_stage1/{}_retinanet_{}.pt'.format(i, epoch_num))
+        torch.save(retinanets[i].module, 'weights_stage1/{}_seresnext101_{}.pt'.format(i, epoch_num))
     #     torch.save(retinanet.module, '{}_retinanet_{}.pt'.format(parser.dataset, epoch_num))
 
 for i in range(4):
     retinanets[i].eval()
-    torch.save(retinanets[i], 'weights_stage1/{}_model_final.pt'.format(i))
+    torch.save(retinanets[i], 'weights_stage1/{}_model_final_seresnext101.pt'.format(i))
 
 
