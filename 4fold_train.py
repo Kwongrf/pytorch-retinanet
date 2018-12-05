@@ -38,7 +38,7 @@ from mydataloader import MyDataset
 import coco_eval
 import csv_eval
 import visdom
-vis = visdom.Visdom(env='retinanet_seresnext101')
+vis = visdom.Visdom(env='retinanet_seresnext3worker')
 
 assert torch.__version__.split('.')[1] == '4'
 
@@ -170,8 +170,8 @@ dataloader_val = []
 for i in range(4):
     sampler = AspectRatioBasedSampler(dataset_train[i], batch_size=BATCH_SIZE, drop_last=False)
     sampler_val = AspectRatioBasedSampler(dataset_val[i], batch_size=1, drop_last=False)
-    dataloader_train.append(DataLoader(dataset_train[i], num_workers=1, collate_fn=collater, batch_sampler=sampler))
-    dataloader_val.append(DataLoader(dataset_val[i], num_workers=1, collate_fn=collater, batch_sampler=sampler_val))
+    dataloader_train.append(DataLoader(dataset_train[i], num_workers=3, collate_fn=collater, batch_sampler=sampler))
+    dataloader_val.append(DataLoader(dataset_val[i], num_workers=3, collate_fn=collater, batch_sampler=sampler_val))
 
 
 # In[3]:
@@ -208,8 +208,8 @@ for i in range(4):
     retinanets[i] = torch.nn.DataParallel(retinanets[i]).cuda()
     #训练模式
     retinanets[i].training = True
-    #学习率0.00001  
-    optimizer.append(optim.Adam(retinanets[i].parameters(), lr=1e-5))
+    #学习率0.0001  
+    optimizer.append(optim.Adam(retinanets[i].parameters(), lr=1e-4))
     #如果3个epoch损失没有减少则降低学习率
     scheduler.append(optim.lr_scheduler.ReduceLROnPlateau(optimizer[i], patience=2, verbose=True))
     # TODO 这是干什么 deque是为了高效实现插入和删除操作的双向列表，适合用于队列和栈：这里是定义了一个500的队列
@@ -257,37 +257,33 @@ for epoch_num in range(EPOCHS):#TODO 4
 
                 print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist[i])))
                 vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([np.mean(loss_hist[i])]), win='train loss '+str(i), update='append' ,opts={'title':'train loss '+str(i)})
+                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([float(classification_loss)]), win='classification loss '+str(i), update='append' ,opts={'title':'classification loss '+str(i)})
+                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([float(regression_loss)]), win='regression loss '+str(i), update='append' ,opts={'title':'regression loss '+str(i)})
                 count[i] += 1
-                vis.save(['retinanet_seresnext101'])
+                vis.save(['retinanet_seresnext3worker'])
 
                 del classification_loss
                 del regression_loss
-                if count[i] % VAL_STEP == 0:
-                    print("Evaluating dataset")
-                    retinanets[i].eval()
-                    mAP = csv_eval.evaluate(dataset_val[i],retinanets[i])
-                    vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([mAP[0][0]]), win='val mAP '+str(i), update='append' ,opts={'title':'mAP val '+str(i)})
-                    vis.save(['retinanet_seresnext101'])
-                    torch.save(retinanets[i].module, 'weights_stage1/{}_seresnext101_{}.pt'.format(i, epoch_num))
-                    retinanets[i].train()
+#                 if count[i] % VAL_STEP == 0:
+#                     print("Evaluating dataset")
+#                     retinanets[i].eval()
+#                     mAP = csv_eval.evaluate(dataset_val[i],retinanets[i])
+#                     vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([mAP[0][0]]), win='val mAP '+str(i), update='append' ,opts={'title':'mAP val '+str(i)})
+#                     vis.save(['retinanet_seresnext101'])
+#                     torch.save(retinanets[i].module, 'weights_stage1/{}_seresnext101_{}.pt'.format(i, epoch_num))
+#                     retinanets[i].train()
             except Exception as e:
                 print(e)
                 continue
         
-    #     retinanet.eval()
-    #     for index,data in enumerate(dataloader_val):
-    #         #data = dataset[index]
-    #         scale = data['scale']
-    #         # run network
-    #         #scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-    #         print(Variable(data['img'].cuda()))
-    #         scores, labels, boxes = retinanet(Variable(data['img'].cuda()))
-    #         #mAP = csv_eval.evaluate(dataset_val,retinanet)
-#         try:
-            
-#         except Exception as e:
-#             print(e)
-#             pass#即使出错也还是需要保存权重的
+        print("Evaluating")
+        retinanets[i].eval()
+        try:
+            mAP = csv_eval.evaluate(dataset_val[i],retinanets[i])
+            vis.line(X=torch.Tensor([epoch_num]), Y=torch.Tensor([mAP[0][0]]), win='val mAP '+str(i), update='append' ,opts={'title':'mAP val '+str(i)})
+            vis.save(['retinanet_seresnext3worker'])
+        except Exception as e:
+            print(e)
         #这一步也看不懂？？TODO 
         scheduler[i].step(np.mean(epoch_loss))
         torch.save(retinanets[i].module, 'weights_stage1/{}_seresnext101_{}.pt'.format(i, epoch_num))

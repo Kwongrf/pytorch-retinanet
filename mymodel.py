@@ -1,6 +1,7 @@
 from __future__ import print_function, division, absolute_import
 import torch.nn as nn
 import torch
+from torch.utils import model_zoo
 import math
 
 from collections import OrderedDict
@@ -13,6 +14,55 @@ from utils import BBoxTransform, ClipBoxes
 from model import PyramidFeatures,ClassificationModel,RegressionModel,nms
 from senet import SEResNeXtBottleneck,pretrained_settings
 
+class PyramidFeatures2(nn.Module):
+    def __init__(self, C3_size, feature_size=256):
+        super(PyramidFeatures, self).__init__()
+        
+#         # upsample C5 to get P5 from the FPN paper
+#         self.P5_1           = nn.Conv2d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
+#         self.P5_upsampled   = nn.Upsample(scale_factor=2, mode='nearest')
+#         self.P5_2           = nn.Conv2d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
+
+        # add P5 elementwise to C4
+#         self.P4_1           = nn.Conv2d(C4_size, feature_size, kernel_size=1, stride=1, padding=0)
+#         self.P4_upsampled   = nn.Upsample(scale_factor=2, mode='nearest')
+#         self.P4_2           = nn.Conv2d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
+
+        # add P4 elementwise to C3
+        self.P3_1 = nn.Conv2d(C3_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P3_2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
+
+        # "P6 is obtained via a 3x3 stride-2 conv on C5"
+        self.P6 = nn.Conv2d(C3_size, feature_size, kernel_size=3, stride=2, padding=1)
+
+        # "P7 is computed by applying ReLU followed by a 3x3 stride-2 conv on P6"
+        self.P7_1 = nn.ReLU()
+        self.P7_2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, stride=2, padding=1)
+
+    def forward(self, inputs):
+
+        C3  = inputs
+
+#         P5_x = self.P5_1(C5)
+#         P5_upsampled_x = self.P5_upsampled(P5_x)
+#         P5_x = self.P5_2(P5_x)
+        
+#         P4_x = self.P4_1(C4)
+#         P4_x = P5_upsampled_x + P4_x
+#         P4_upsampled_x = self.P4_upsampled(P4_x)
+#         P4_x = self.P4_2(P4_x)
+
+        P3_x = self.P3_1(C3)
+#         P3_x = P3_x + P4_upsampled_x
+        P3_x = self.P3_2(P3_x)
+
+        P6_x = self.P6(C4)
+
+        P7_x = self.P7_1(P6_x)
+        P7_x = self.P7_2(P7_x)
+
+        return [P3_x, P6_x, P7_x]
+    
 class SENet(nn.Module):
 
     def __init__(self, block, layers, groups, reduction, dropout_p=0.2,
@@ -130,16 +180,35 @@ class SENet(nn.Module):
             downsample_padding=downsample_padding
         )
         #TODO ##########################################################
-        #self.avg_pool = nn.AvgPool2d(7, stride=1)
-        #self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
+        self.avg_pool = nn.AvgPool2d(7, stride=1)
+        self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
+        
         #self.last_linear = nn.Linear(512 * block.expansion, num_classes)
+        self.last_linear = nn.Linear(247808, num_classes)
+#         512+32 = 544 544/4 /2 /2 /2 -7+1 = 11 11*11*2048 = 247808
+#         torch.Size([1, 3, 544, 544])
+#         torch.Size([1, 3, 544, 544])
+#         torch.Size([1, 64, 136, 136])
+#         torch.Size([1, 64, 136, 136])
+#         torch.Size([1, 256, 136, 136])
+#         torch.Size([1, 512, 68, 68])
+#         torch.Size([1, 256, 136, 136])
+#         torch.Size([1, 1024, 34, 34])
+#         torch.Size([1, 512, 68, 68])
+#         torch.Size([1, 2048, 17, 17])
+#         torch.Size([1, 2048, 11, 11])
+#         torch.Size([1, 247808])
+#         torch.Size([1, 1024, 34, 34])
+#         torch.Size([1, 2048, 17, 17])
+#         torch.Size([1, 2048, 11, 11])
+#         torch.Size([1, 247808])
         #TODO ##########################################################
 
         if block == SEResNeXtBottleneck:
             fpn_sizes = [self.layer2[layers[1]-1].conv3.out_channels, self.layer3[layers[2]-1].conv3.out_channels, self.layer4[layers[3]-1].conv3.out_channels]
 
         self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2])
-
+        
         self.regressionModel = RegressionModel(256)
         self.classificationModel = ClassificationModel(256, num_classes=num_classes)
 
@@ -150,7 +219,20 @@ class SENet(nn.Module):
         self.clipBoxes = ClipBoxes()
         
         self.focalLoss = losses.FocalLoss()
-                
+        
+        self.criterion =  nn.CrossEntropyLoss()
+        ##############################################################
+#         self.regressionModel2 = RegressionModel(256)
+#         self.classificationModel2 = ClassificationModel(256, num_classes=num_classes)
+
+#         self.anchors2 = Anchors()
+
+#         self.regressBoxes2 = BBoxTransform()
+
+#         self.clipBoxes2 = ClipBoxes()
+        
+#         self.focalLoss2 = losses.FocalLoss()
+        ###############################################################      
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -166,8 +248,15 @@ class SENet(nn.Module):
 
         self.regressionModel.output.weight.data.fill_(0)
         self.regressionModel.output.bias.data.fill_(0)
+        #############################################################################
+#         self.classificationModel2.output.weight.data.fill_(0)
+#         self.classificationModel2.output.bias.data.fill_(-math.log((1.0-prior)/prior))
 
+#         self.regressionModel2.output.weight.data.fill_(0)
+#         self.regressionModel2.output.bias.data.fill_(0)
+        #############################################################################
         self.freeze_bn()
+        
         
     def _make_layer(self, block, planes, blocks, groups, reduction, stride=1,
                     downsample_kernel_size=1, downsample_padding=0):
@@ -194,23 +283,40 @@ class SENet(nn.Module):
         for layer in self.modules():
             if isinstance(layer, nn.BatchNorm2d):
                 layer.eval()
-                
+    
+    def logits(self, x):
+        x = self.avg_pool(x)
+#         print(x.size())
+        if self.dropout is not None:
+            x = self.dropout(x)
+        x = x.view(x.size(0), -1)
+#         print(x.size())
+        x = self.last_linear(x)
+        return x   
+    
     def forward(self, inputs):
 
         if self.training:
             img_batch, annotations = inputs
         else:
             img_batch = inputs
-            
+#         print(img_batch.size())   
         x0 = self.layer0(img_batch)
-
+#         print(x0.shape)
         x1 = self.layer1(x0)
+#         print(x1.size())
         x2 = self.layer2(x1)
+#         print(x2.size())
         x3 = self.layer3(x2)
+#         print(x3.size())
         x4 = self.layer4(x3)
-
+#         print(x4.size())
+        
+        whole_class = self.logits(x4)
+        
+        
         features = self.fpn([x2, x3, x4])
-
+        
         regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)
 
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
@@ -218,7 +324,9 @@ class SENet(nn.Module):
         anchors = self.anchors(img_batch)
 
         if self.training:
-            return self.focalLoss(classification, regression, anchors, annotations)
+            target = annotations[:,0,4].type(torch.cuda.LongTensor)
+            whole_class_loss = self.criterion(whole_class, target)#第一个box的class即整张图像的 annotations.shape= (batch_size,box_num,5)
+            return self.focalLoss(classification, regression, anchors, annotations),whole_class_loss
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
@@ -249,6 +357,7 @@ def initialize_pretrained_model(model, num_classes, settings):
 #    model.load_state_dict(model_zoo.load_url(settings['url']))
 #    model.load_state_dict('se_resnext101_32x4d-3b2fe3d8.pth')
     model = torch.load('se_resnext101_32x4d-3b2fe3d8.pth')
+#    model = torch.load('se_resnext50_32x4d-a260b3a4.pth')
     model.input_space = settings['input_space']
     model.input_size = settings['input_size']
     model.input_range = settings['input_range']
@@ -262,5 +371,14 @@ def se_resnext101_32x4d(num_classes=1000, pretrained='imagenet'):
                   num_classes=num_classes)
     if pretrained is not None:
         settings = pretrained_settings['se_resnext101_32x4d'][pretrained]
+        initialize_pretrained_model(model, num_classes, settings)
+    return model
+def se_resnext50_32x4d(num_classes=1000, pretrained='imagenet'):
+    model = SENet(SEResNeXtBottleneck, [3, 4, 6, 3], groups=32, reduction=16,
+                  dropout_p=None, inplanes=64, input_3x3=False,
+                  downsample_kernel_size=1, downsample_padding=0,
+                  num_classes=num_classes)
+    if pretrained is not None:
+        settings = pretrained_settings['se_resnext50_32x4d'][pretrained]
         initialize_pretrained_model(model, num_classes, settings)
     return model

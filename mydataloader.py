@@ -136,9 +136,9 @@ class MyDataset(Dataset):
             x2 = a['x2']
             y1 = a['y1']
             y2 = a['y2']
-
-            if (x2-x1) < 1 or (y2-y1) < 1:
-                continue
+#允许出现(0,0,0,0)的情况
+#             if (x2-x1) < 1 or (y2-y1) < 1:
+#                 continue
 
             annotation        = np.zeros((1, 5))
             
@@ -166,26 +166,26 @@ class MyDataset(Dataset):
                 result[img_file] = []
 
             # If a row contains only an image path, it's an image without annotations.
-            if (x1, y1, x2, y2, class_name) == ('', '', '', '', ''):
-                continue
+            if (x1, y1, x2, y2) == ('', '', '', ''):#！！！！这里原来没有将normal的图片加载进去
+                result[img_file].append({'x1': 0, 'x2': 0, 'y1': 0, 'y2': 0, 'class': class_name})
+            else:
+                ##################change int to float by KRF######################################
+                x1 = self._parse(x1,  float, 'line {}: malformed x1: {{}}'.format(line))
+                y1 = self._parse(y1,  float, 'line {}: malformed y1: {{}}'.format(line))
+                x2 = self._parse(x2,  float, 'line {}: malformed x2: {{}}'.format(line))
+                y2 = self._parse(y2,  float, 'line {}: malformed y2: {{}}'.format(line))
 
-            ##################change int to float by KRF######################################
-            x1 = self._parse(x1,  float, 'line {}: malformed x1: {{}}'.format(line))
-            y1 = self._parse(y1,  float, 'line {}: malformed y1: {{}}'.format(line))
-            x2 = self._parse(x2,  float, 'line {}: malformed x2: {{}}'.format(line))
-            y2 = self._parse(y2,  float, 'line {}: malformed y2: {{}}'.format(line))
+                # Check that the bounding box is valid.
+                if x2 <= x1:
+                    raise ValueError('line {}: x2 ({}) must be higher than x1 ({})'.format(line, x2, x1))
+                if y2 <= y1:
+                    raise ValueError('line {}: y2 ({}) must be higher than y1 ({})'.format(line, y2, y1))
 
-            # Check that the bounding box is valid.
-            if x2 <= x1:
-                raise ValueError('line {}: x2 ({}) must be higher than x1 ({})'.format(line, x2, x1))
-            if y2 <= y1:
-                raise ValueError('line {}: y2 ({}) must be higher than y1 ({})'.format(line, y2, y1))
+                # check if the current class name is correctly present
+                if class_name not in classes:
+                    raise ValueError('line {}: unknown class name: \'{}\' (classes: {})'.format(line, class_name, classes))
 
-            # check if the current class name is correctly present
-            if class_name not in classes:
-                raise ValueError('line {}: unknown class name: \'{}\' (classes: {})'.format(line, class_name, classes))
-
-            result[img_file].append({'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': class_name})
+                result[img_file].append({'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': class_name})
         return result
 
     def name_to_label(self, name):

@@ -50,7 +50,7 @@ class FocalLoss(nn.Module):
                 regression_losses.append(torch.tensor(0).float().cuda())
                 classification_losses.append(torch.tensor(0).float().cuda())
 
-                continue
+                continue###TODO 这里好像有没有考虑没有标签的图片，即使没有标签，我设置成（0,0,0,0）就可以了嘛
 
             classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
 
