@@ -34,11 +34,11 @@ from anchors import Anchors
 import losses
 from dataloader import CocoDataset, CSVDataset, collater, Resizer, AspectRatioBasedSampler, Augmenter, UnNormalizer, Normalizer
 from torch.utils.data import Dataset, DataLoader
-from mydataloader import MyDataset
+from mydataloader import MyDataset,MyAugmenter
 import coco_eval
 import csv_eval
 import visdom
-vis = visdom.Visdom(env='retinanet_seresnext3worker')
+vis = visdom.Visdom(env='retinanet_seresnextWholeclass')
 
 assert torch.__version__.split('.')[1] == '4'
 
@@ -89,61 +89,58 @@ from tqdm import tqdm
 #         write.writerows(val_rows)
 #         print("csv_val 写入完毕")
 
-# with open(CSV_CLASSES,'w') as f:
-#     write = csv.writer(f)
-#     row = ['1','0']
-#     write.writerow(row)
-#     print("csv_classes 写入完毕")
-
-
-
-##每次跑这个函数之前需要先删除之前的
-
-# df = pd.read_csv(DATA_PATH+"/stage_1_train_labels.csv")
-# train_images = os.listdir(DATA_PATH+"/stage_1_train_images")
-# random.shuffle(train_images)#打乱图片顺序
-# count = 0
-# pos_cnt_train = [0,0,0,0]
-# pos_cnt_val = [0,0,0,0]
-# for img_name in tqdm(train_images):
-#     results = df[df['patientId']==img_name.split('.')[0]].values
+with open(CSV_CLASSES,'w') as f:
+    write = csv.writer(f)
     
-#     if count < 4000:
-#         for row in results:
-#             row[0] = DATA_PATH+"/stage_1_train_images/"+row[0]+".dcm"
-#             if row[5] == 1:
-#                 pos_cnt_val[count % 4] += 1
-#             if row[1] >= 0 and row[1] <= 1024:
-#                 row[3] = str(float(row[1]) + float(row[3]))# x2 = x1 + w 
-#                 row[4] = str(float(row[2]) + float(row[4]))# y2 = y1 + h
-#             else:
-#                 row[1] = ''
-#                 row[2] = ''
-#                 row[3] = ''
-#                 row[4] = ''
-#                 row[5] = ''
-#             with open(CSV_VALS[count % 4],'a') as f:
-#                 write = csv.writer(f)
-#                 write.writerow(row)
-#     else:
-#         for row in results:
-#             row[0] = DATA_PATH+"/stage_1_train_images/"+row[0]+".dcm"
-#             if row[5] == 1:
-#                 pos_cnt_train[count % 4] += 1
-#             if row[1] >= 0 and row[1] <= 1024:
-#                 row[3] = str(float(row[1]) + float(row[3]))# x2 = x1 + w 
-#                 row[4] = str(float(row[2]) + float(row[4]))# y2 = y1 + h  
-#             else:
-#                 row[1] = ''
-#                 row[2] = ''
-#                 row[3] = ''
-#                 row[4] = ''
-#                 row[5] = ''   
-#             with open(CSV_TRAINS[count % 4],'a') as f:
-#                 write = csv.writer(f)
-#                 write.writerow(row)
-#     count += 1
-# print(pos_cnt_train,pos_cnt_val)  
+    row = ['0','0']
+    write.writerow(row)
+    row = ['1','1']
+    write.writerow(row)
+    row = ['2','2']
+    write.writerow(row)
+    print("csv_classes 写入完毕")
+
+
+
+# #每次跑这个函数之前需要先删除之前的
+
+df = pd.read_csv(DATA_PATH+"/stage_1_train_labels.csv")
+ddf = pd.read_csv(DATA_PATH+'/stage_1_detailed_class_info.csv')
+train_images = os.listdir(DATA_PATH+"/stage_1_train_images")
+
+random.shuffle(train_images)#打乱图片顺序
+count = 0
+pos_cnt_train = [0,0,0,0]
+pos_cnt_val = [0,0,0,0]
+class_dict = {'Normal':0,'Lung Opacity':1,'No Lung Opacity / Not Normal':2}
+for img_name in tqdm(train_images):
+    results = df[df['patientId']==img_name.split('.')[0]].values
+    detail = ddf[df['patientId']==img_name.split('.')[0]].values
+    for row in results:
+        row[0] = DATA_PATH+"/stage_1_train_images/"+row[0]+".dcm"
+        if row[5] == 1:
+            pos_cnt_val[count % 4] += 1
+        if row[1] >= 0 and row[1] <= 1024:
+            row[3] = str(float(row[1]) + float(row[3]))# x2 = x1 + w 
+            row[4] = str(float(row[2]) + float(row[4]))# y2 = y1 + h
+        else:
+            row[1] = ''
+            row[2] = ''
+            row[3] = ''
+            row[4] = ''
+            row[5] = class_dict[detail[0,1]]
+        with open(CSV_VALS[count % 4],'a') as f:
+            write = csv.writer(f)
+            write.writerow(row)
+        for i in range(4):
+            if count % 4 == i:
+                continue
+            else:
+                with open(CSV_TRAINS[count % 4],'a') as f:
+                    write = csv.writer(f)
+                    write.writerow(row) 
+    count += 1
+print(pos_cnt_train,pos_cnt_val) 
 
 
 # In[2]:
@@ -158,7 +155,7 @@ dataset_train = []
 dataset_val = []
 
 for i in range(4): 
-    dataset_train.append(MyDataset(train_file=CSV_TRAINS[i], class_list=CSV_CLASSES, transform=transforms.Compose([Normalizer(), Augmenter(), Resizer()])))
+    dataset_train.append(MyDataset(train_file=CSV_TRAINS[i], class_list=CSV_CLASSES, transform=transforms.Compose([Normalizer(), MyAugmenter(), Resizer()])))
     dataset_val.append(MyDataset(train_file=CSV_VALS[i], class_list=CSV_CLASSES, transform=transforms.Compose([Normalizer(), Resizer()])))
 
 #每次的sampler的参数：来源、batchsize、是否抛弃最后一层？？？
@@ -201,6 +198,10 @@ for i in range(4):
 optimizer = []
 scheduler = []
 loss_hist = []
+loss_hist = []
+classloss_hist = []
+regressloss_hist = []
+wholeclassloss_hist = []
 for i in range(4):
 #     retinanets[i] = torch.load('weights_stage1/{}_retinanet_{}.pt'.format(i,3))#TODO DO NOT LOAD
     retinanets[i] = retinanets[i].cuda()
@@ -213,7 +214,10 @@ for i in range(4):
     #如果3个epoch损失没有减少则降低学习率
     scheduler.append(optim.lr_scheduler.ReduceLROnPlateau(optimizer[i], patience=2, verbose=True))
     # TODO 这是干什么 deque是为了高效实现插入和删除操作的双向列表，适合用于队列和栈：这里是定义了一个500的队列
-    loss_hist.append(collections.deque(maxlen=1000))
+    loss_hist.append(collections.deque(maxlen=500))
+    classloss_hist.append(collections.deque(maxlen=500))
+    regressloss_hist.append(collections.deque(maxlen=500))
+    wholeclassloss_hist.append(collections.deque(maxlen=500))
     print('Num training images: {}'.format(len(dataset_train[i])))
 # In[5]:
 
@@ -234,11 +238,12 @@ for epoch_num in range(EPOCHS):#TODO 4
             try:
                 optimizer[i].zero_grad()
 
-                classification_loss, regression_loss = retinanets[i]([Variable(data['img'].cuda().float()), Variable(data['annot'].cuda())])
+                focal_loss, whole_class_loss = retinanets[i]([Variable(data['img'].cuda().float()), Variable(data['annot'].cuda())])
+                classification_loss, regression_loss = focal_loss
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
-
-                loss = classification_loss + regression_loss
+                whole_class_loss = whole_class_loss.mean()
+                loss = classification_loss + regression_loss + whole_class_loss
 
                 if bool(loss == 0):
                     continue
@@ -252,18 +257,24 @@ for epoch_num in range(EPOCHS):#TODO 4
                 optimizer[i].step()
 
                 loss_hist[i].append(float(loss))
-
+                classloss_hist[i].append(float(classification_loss))
+                regressloss_hist[i].append(float(regression_loss))
+                wholeclassloss_hist[i].append(float(whole_class_loss))
+                
                 epoch_loss.append(float(loss))
 
                 print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist[i])))
                 vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([np.mean(loss_hist[i])]), win='train loss '+str(i), update='append' ,opts={'title':'train loss '+str(i)})
-                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([float(classification_loss)]), win='classification loss '+str(i), update='append' ,opts={'title':'classification loss '+str(i)})
-                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([float(regression_loss)]), win='regression loss '+str(i), update='append' ,opts={'title':'regression loss '+str(i)})
+                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([np.mean(classloss_hist[i])]), win='classification loss '+str(i), update='append' ,opts={'title':'classification loss '+str(i)})
+                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([np.mean(regressloss_hist[i])]), win='regression loss '+str(i), update='append' ,opts={'title':'regression loss '+str(i)})
+                vis.line(X=torch.Tensor([count[i]]), Y=torch.Tensor([np.mean(wholeclassloss_hist[i])]), win='whole class loss '+str(i), update='append' ,opts={'title':'whole class loss '+str(i)})
                 count[i] += 1
-                vis.save(['retinanet_seresnext3worker'])
-
+                vis.save(['retinanet_seresnextWholeclass'])
+                
+                del focal_loss
                 del classification_loss
                 del regression_loss
+                del whole_class_loss
 #                 if count[i] % VAL_STEP == 0:
 #                     print("Evaluating dataset")
 #                     retinanets[i].eval()
@@ -280,8 +291,8 @@ for epoch_num in range(EPOCHS):#TODO 4
         retinanets[i].eval()
         try:
             mAP = csv_eval.evaluate(dataset_val[i],retinanets[i])
-            vis.line(X=torch.Tensor([epoch_num]), Y=torch.Tensor([mAP[0][0]]), win='val mAP '+str(i), update='append' ,opts={'title':'mAP val '+str(i)})
-            vis.save(['retinanet_seresnext3worker'])
+            vis.line(X=torch.Tensor([epoch_num]), Y=torch.Tensor([mAP[1][0]]), win='val mAP '+str(i), update='append' ,opts={'title':'mAP val '+str(i)})
+            vis.save(['retinanet_seresnextWholeclass'])
         except Exception as e:
             print(e)
         #这一步也看不懂？？TODO 

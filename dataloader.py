@@ -17,7 +17,7 @@ import skimage.transform
 import skimage.color
 import skimage
 
-from PIL import Image
+from PIL import Image,ImageChops
 
 import pydicom
 
@@ -381,9 +381,8 @@ class Augmenter(object):
     def __call__(self, sample, flip_x=0.5):
 
         if np.random.rand() < flip_x:
+            image = image[:, ::-1, :]#横向翻转，5%的概率
             image, annots = sample['img'], sample['annot']
-            image = image[:, ::-1, :]#横向翻转，50%的概率
-
             rows, cols, channels = image.shape
 
             x1 = annots[:, 0].copy()
@@ -394,8 +393,7 @@ class Augmenter(object):
             annots[:, 0] = cols - x2
             annots[:, 2] = cols - x_tmp
 
-            sample = {'img': image, 'annot': annots}
-
+            sample = {'img': image, 'annot': annots}  
         return sample
 
 

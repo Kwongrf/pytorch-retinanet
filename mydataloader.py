@@ -4,6 +4,7 @@ import os
 import torch
 import numpy as np
 import random
+import math
 import csv
 import six
 from torch.utils.data import Dataset, DataLoader
@@ -21,6 +22,7 @@ from PIL import Image
 
 import pydicom
 
+from collections import Counter
 #######################################################KRF CREATED 2018/11/14######################################################################
 class MyDataset(Dataset):
     """My dataset.类似于CSV dataset，差异在于CSV格式稍有不同，以及图片处理过程不同"""
@@ -265,7 +267,9 @@ class NormalizerTest(object):
     def __call__(self, sample):
 
         image, name = sample['img'], sample['name']
-
+        #######################################################
+        image = HistEqu(image,mode='gray')#进行直方图均衡化####
+        #######################################################
         return {'img':((image.astype(np.float32)-self.mean)/self.std), 'name': name}
 class ResizerTest(object):
     """Convert ndarrays in sample to Tensors."""
@@ -345,5 +349,272 @@ def collaterTest(data):
     return {'img': padded_imgs, 'names': names, 'scale': scales}
 
 
+class MyAugmenter(object):
+    """Convert ndarrays in sample to Tensors."""
 
+    def __call__(self, sample, flip_x=0.15, shift = 0.3, scale = 0.4, rotate = 0.5, noise = 0.6):
+        rand = np.random.rand()
+        image, annots = sample['img'], sample['annot']
+        if rand < flip_x:
+            #print("flip_x")
+            image = image[:, ::-1, :]#横向翻转，20%的概率
+
+            rows, cols, channels = image.shape
+
+            x1 = annots[:, 0].copy()
+            x2 = annots[:, 2].copy()
+            
+            x_tmp = x1.copy()
+
+            annots[:, 0] = cols - x2
+            annots[:, 2] = cols - x_tmp
+
+            sample = {'img': image, 'annot': annots}
+            
+        elif rand < shift:#平移
+            #print("shift")
+            delta_x = 10
+            delta_y = 10
+            rows, cols, channels = image.shape
+
+            x1 = annots[:, 0].copy()
+            y1 = annots[:, 1].copy()
+            x2 = annots[:, 2].copy()
+            y2 = annots[:, 3].copy()
+            
+           
+            
+            emptyImage = image.copy()
+            if np.random.rand() < 0.25: #右移
+                annots[:,0] = x1 + delta_x
+                annots[:,2] = x2 + delta_x
+                for i in range(rows):
+
+                    if i>=delta_x:
+                        emptyImage[i,:]=image[i-delta_x,:]
+                    else:
+                        emptyImage[i,:]=(0,0,0)
+            else : #左移
+                annots[:,0] = x1 - delta_x
+                annots[:,2] = x2 - delta_x
+                for i in range(rows):
+                    if i< rows-delta_x:
+                        emptyImage[i,:]=image[i+delta_x,:]
+                    else:
+                        emptyImage[i,:]=(0,0,0)
+            if np.random.rand() < 0.5: #右移
+                annots[:,1] = y1 + delta_y
+                annots[:,3] = y2 + delta_y
+                for j in range(cols):
+                    if j>=delta_y:
+                        emptyImage[:,j]=image[:,j-delta_x]
+                    else:
+                        emptyImage[:,j]=(0,0,0)
+            else: #右移
+                annots[:,1] = y1 - delta_y
+                annots[:,3] = y2 - delta_y
+                for j in range(cols):
+                    if j<cols - delta_y:
+                        emptyImage[:,j]=image[:,j+delta_x]
+                    else:
+                        emptyImage[:,j]=(0,0,0)
+            sample = {'img': emptyImage, 'annot': annots}
+            
+        elif rand < scale:
+            #print("scale")
+            rows, cols, channels = image.shape
+
+            x1 = annots[:, 0].copy()
+            y1 = annots[:, 1].copy()
+            x2 = annots[:, 2].copy()
+            y2 = annots[:, 3].copy()
+            
+            emptyImage = image.copy()
+            rand_tmp = np.random.rand()
+            if rand_tmp < 0.5:#放大
+                degree = 0.9
+            else:
+                degree = 1.1
+            annots[:, 0] = (x1 * [degree,]).astype(np.uint8)
+            annots[:, 1] = (y1 * [degree,]).astype(np.uint8)
+            annots[:, 2] = (x2 * [degree,]).astype(np.uint8)
+            annots[:, 3] = (y2 * [degree,]).astype(np.uint8)
+            
+            for j in range(cols):
+                for i in range(rows):
+                    if j/degree > 0 and j/degree < cols and i/degree > 0 and i/degree < rows:
+                        emptyImage[i,j] = image[int(i/degree),int(j/degree)]
+                    else:
+                        emptyImage[i,j] = (0,0,0)
+                    
+                
+            sample = {'img': emptyImage, 'annot': annots}
+        elif rand < rotate:##TODO 
+            #print("rotate")
+            rand_tmp = np.random.rand()
+            if rand_tmp < 0.25:
+                angle = 15
+            elif rand_tmp < 0.5:
+                angle = -15
+            elif rand_tmp < 0.75:
+                angle = 30
+            else:
+                angle = -30
+            h, w, channels = image.shape
+            x1 = annots[:, 0].copy()
+            y1 = annots[:, 1].copy()
+            x2 = annots[:, 2].copy()
+            y2 = annots[:, 3].copy()
+            
+            anglePi = angle * math.pi / 180.0
+            cosA = math.cos(anglePi)
+            sinA = math.sin(anglePi)
+            X1 = math.ceil(abs(0.5 * h * cosA + 0.5 * w * sinA))
+            X2 = math.ceil(abs(0.5 * h * cosA - 0.5 * w * sinA))
+            Y1 = math.ceil(abs(-0.5 * h * sinA + 0.5 * w * cosA))
+            Y2 = math.ceil(abs(-0.5 * h * sinA - 0.5 * w * cosA))
+            hh = int(2 * max(Y1, Y2))
+            ww = int(2 * max(X1, X2))
+            
+#             X1 = math.ceil(abs( x1 * cosA +  y1 * sinA))
+#             X2 = math.ceil(abs(x2 * cosA + y2 * sinA))
+#             Y1 = math.ceil(abs(-1 * x1 * sinA + y1 * cosA))
+#             Y2 = math.ceil(abs(-1 * x2 * sinA + y2 * cosA))
+            X1 = abs(x1 * cosA +  y1 * sinA)
+            X2 = abs(x2 * cosA +  y2 * sinA)
+            Y1 = abs(-1 * x1 * sinA + y1 * cosA)
+            Y2 = abs(-1 * x2 * sinA + y2 * cosA)
+            for i in range(annots.shape[0]):
+                annots[i,0] = int(min(X1[i], X2[i]))
+                annots[i,1] = int(min(Y1[i], Y2[i]))
+                annots[i,2] = int(max(X1[i], X2[i]))
+                annots[i,3] = int(max(Y1[i], Y2[i]))
+            
+            emptyImage = np.zeros((hh, ww, channels), np.uint8)
+            for i in range(hh):
+                for j in range(ww):
+                    x = cosA * i + sinA * j - 0.5 * ww * cosA - 0.5 * hh * sinA + 0.5 * w
+                    y =  cosA * j- sinA * i+ 0.5 * ww * sinA - 0.5 * hh * cosA + 0.5 * h
+                    x = int(x)
+                    y = int(y)
+                    if x > -1 and x < h and y > -1 and y < w :
+
+                        emptyImage[i, j] = image[x, y]
+            sample = {'img': emptyImage, 'annot': annots}
+#             return emptyImage
+            
+        elif rand < noise:
+            #print("noise")
+            rows, cols, channels = image.shape
+            param=10
+            #灰阶范围
+            grayscale=256
+            newimg=np.zeros((rows,cols,channels),np.uint8)
+            for x in range(rows):
+                for y in range(0,cols,2):
+                    r1=np.random.random_sample()
+                    r2=np.random.random_sample()
+                    z1=param*np.cos(2*np.pi*r2)*np.sqrt((-2)*np.log(r1))
+                    z2=param*np.sin(2*np.pi*r2)*np.sqrt((-2)*np.log(r1))
+
+                    fxy=int(image[x,y,0]+z1)
+                    fxy1=int(image[x,y+1,0]+z2)       
+                    #f(x,y)
+                    if fxy<0:
+                        fxy_val=0
+                    elif fxy>grayscale-1:
+                        fxy_val=grayscale-1
+                    else:
+                        fxy_val=fxy
+                    #f(x,y+1)
+                    if fxy1<0:
+                        fxy1_val=0
+                    elif fxy1>grayscale-1:
+                        fxy1_val=grayscale-1
+                    else:
+                        fxy1_val=fxy1
+                    for c in range(channels):
+                        newimg[x,y,c]=fxy_val
+                        newimg[x,y+1,c]=fxy1_val
+
+
+            sample = {'img': newimg, 'annot': annots}
+            
+        return sample
+
+def HistEqu(img,level=256,mode='RGB'):
+    '''
+
+    :param img: image array
+    :param level:灰度等级，彩色图是每个通道对应的等级数
+    :param mode:'rgb'为彩色模式，'gray'为灰度图
+    :return: 按照输出文件路径保存均衡化之后的图片
+    '''
+    if mode == 'RGB' or mode == 'rgb':
+        r, g, b = [], [], []
+        width, height,channels = img.shape
+        sum_pix = width * height
+        pix = img.copy()
+        for x in range(width):
+            for y in range(height):
+                r.append(pix[x, y][0])
+                g.append(pix[x, y][1])
+                b.append(pix[x, y][2])
+        r_c = dict(Counter(r))
+        g_c = dict(Counter(g))
+        b_c = dict(Counter(b))
+        r_p,g_p,b_p = [],[],[]
+
+        for i in range(level):
+            if i in r_c :
+                r_p.append(float(r_c[i]) / sum_pix)
+            else:
+                r_p.append(0)
+            if i in g_c :
+                g_p.append(float(g_c[i])/sum_pix)
+            else:
+                g_p.append(0)
+            if i in b_c :
+                b_p.append(float(b_c[i])/sum_pix)
+            else:
+                b_p.append(0)
+        temp_r,temp_g,temp_b = 0,0,0
+        for i in range(level):
+            temp_r += r_p[i]
+            r_p[i] = int(temp_r * (level-1))
+            temp_b += b_p[i]
+            b_p[i] = int(temp_b *(level-1))
+            temp_g += g_p[i]
+            g_p[i] = int(temp_g*(level -1))
+#         new_photo = Image.new('RGB',(width,height))
+        new_photo=np.zeros((width, height,channels),np.uint8)
+        for x in range(width):
+            for y in range(height):
+                new_photo[x,y] = [r_p[pix[x,y][0]],g_p[pix[x,y][1]],b_p[pix[x,y][2]]]
+        #new_photo.save(outfile)
+    elif mode == 'gray' or mode == 'GRAY':
+        width, height = img.shape
+        sum_pix = width * height
+        pix = img.copy()
+        pb = []
+        for x in range(width):
+            for y in range(height):
+                pb.append(pix[x,y])
+        pc = dict(Counter(pb))
+        pb = []
+        for i in range(level):
+            if i in pc :
+                pb.append(float(pc[i]) / sum_pix)
+            else:
+                pb.append(0)
+        temp = 0
+        for i in range(level):
+            temp += pb[i]
+            pb[i] = int(temp * (level-1))
+        new_photo=np.zeros((width,height),np.uint8)
+        for x in range(width):
+            for y in range(height):
+                new_photo[x,y] = pb[pix[x,y]]
+        #new_photo.save(outfile)
+    return new_photo
 
