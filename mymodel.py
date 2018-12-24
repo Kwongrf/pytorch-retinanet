@@ -183,7 +183,7 @@ class SENet(nn.Module):
         self.avg_pool = nn.AvgPool2d(7, stride=1)
         self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
         
-        #self.last_linear = nn.Linear(512 * block.expansion, num_classes)
+#         self.last_linear = nn.Linear(512 * block.expansion, num_classes)
         self.last_linear = nn.Linear(247808, num_classes)
 #         512+32 = 544 544/4 /2 /2 /2 -7+1 = 11 11*11*2048 = 247808
 #         torch.Size([1, 3, 544, 544])
@@ -351,13 +351,16 @@ class SENet(nn.Module):
             return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
 
 def initialize_pretrained_model(model, num_classes, settings):
-#     assert num_classes == settings['num_classes'], \
-#         'num_classes should be {}, but is {}'.format(
-#             settings['num_classes'], num_classes)
-#    model.load_state_dict(model_zoo.load_url(settings['url']))
-#    model.load_state_dict('se_resnext101_32x4d-3b2fe3d8.pth')
-    model = torch.load('se_resnext101_32x4d-3b2fe3d8.pth')
-#    model = torch.load('se_resnext50_32x4d-a260b3a4.pth')
+    #调用模型 
+    model_dict = model_zoo.load_url(settings['url'],'/data/krf/model/pytorch-retinanet/')
+    pretrained_dict = model.state_dict()
+    # 1. filter out unnecessary keys
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+    # 2. overwrite entries in the existing state dict
+    model_dict.update(pretrained_dict)
+    # 3. load the new state dict
+    model.load_state_dict(model_dict,strict=False)
+    #model.load_state_dict(torch.load('se_resnext50_32x4d-a260b3a4.pth'), strict=False)
     model.input_space = settings['input_space']
     model.input_size = settings['input_size']
     model.input_range = settings['input_range']
@@ -366,7 +369,7 @@ def initialize_pretrained_model(model, num_classes, settings):
     
 def se_resnext101_32x4d(num_classes=1000, pretrained='imagenet'):
     model = SENet(SEResNeXtBottleneck, [3, 4, 23, 3], groups=32, reduction=16,
-                  dropout_p=None, inplanes=64, input_3x3=False,
+                  dropout_p=0.6, inplanes=64, input_3x3=False,
                   downsample_kernel_size=1, downsample_padding=0,
                   num_classes=num_classes)
     if pretrained is not None:

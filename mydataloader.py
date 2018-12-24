@@ -23,6 +23,15 @@ from PIL import Image
 import pydicom
 
 from collections import Counter
+
+from transform import *
+from image import (
+    TransformParameters,
+    adjust_transform_for_image,
+    apply_transform,
+    preprocess_image,
+    resize_image
+)
 #######################################################KRF CREATED 2018/11/14######################################################################
 class MyDataset(Dataset):
     """My dataset.类似于CSV dataset，差异在于CSV格式稍有不同，以及图片处理过程不同"""
@@ -268,7 +277,7 @@ class NormalizerTest(object):
 
         image, name = sample['img'], sample['name']
         #######################################################
-        image = HistEqu(image,mode='gray')#进行直方图均衡化####
+        #image = HistEqu(image,mode='gray')#进行直方图均衡化####
         #######################################################
         return {'img':((image.astype(np.float32)-self.mean)/self.std), 'name': name}
 class ResizerTest(object):
@@ -348,7 +357,34 @@ def collaterTest(data):
 
     return {'img': padded_imgs, 'names': names, 'scale': scales}
 
+class RandomTransformer(object):
+    """Transformation to sample"""
+    def __call__(self,sample):
+        image, annots = sample['img'], sample['annot']
+        trs = random_transform(
+                    min_rotation=-0.05,
+                    max_rotation=0.05,
+                    min_translation=(-0.1, -0.1),
+                    max_translation=(0.1, 0.1),
+        #             min_shear=-0.5,
+        #             max_shear=0.5,
+                    min_scaling=(0.9, 0.9),
+                    max_scaling=(1.1, 1.1),
+                    flip_x_chance=0.5,
+                    #flip_y_chance=0.5,
+                )
+        tr = adjust_transform_for_image(trs, image, True)
+        image     = apply_transform(tr, image, None)#TransformParameters())
 
+        # Transform the bounding boxes in the annotations.
+        annotations = annots.copy()
+        if not (annotations[0,2] == 0 or annotations[0,3] == 0):
+            for index in range(annotations.shape[0]):
+                annotations[index, :4] = transform_aabb(tr, annotations[index, :4])
+        sample = {'img':image,'annot':annotations}
+        return sample
+                 
+    
 class MyAugmenter(object):
     """Convert ndarrays in sample to Tensors."""
 
